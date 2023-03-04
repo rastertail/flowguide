@@ -17,7 +17,12 @@
         };
       in {
         devShells.default = pkgs.mkShell {
-          buildInputs = [ rust ];
+          buildInputs = [
+            rust
+            pkgs.pkgconfig pkgs.openssl
+            pkgs.wasm-pack pkgs.binaryen
+            pkgs.simple-http-server
+          ];
         };
       }
     );
