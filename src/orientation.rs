@@ -74,7 +74,7 @@ pub fn hierarchical_smoothing(hierarchy: &[HierarchyLevel], iterations: usize) -
         init
     };
 
-    for i in 0..iterations {
+    for _ in 0..iterations {
         extrinsic_smooth(&hierarchy[hierarchy.len() - 1].mesh, &mut field, &mut rng);
     }
 

@@ -88,7 +88,7 @@ pub async fn run(root: web_sys::Element) {
                 log::info!("Built hierarchy in {}ms", js_sys::Date::now() - st);
 
                 st = js_sys::Date::now();
-                let o_field = orientation::hierarchical_smoothing(&hierarchy, 6);
+                let o_field = orientation::hierarchical_smoothing(&hierarchy, 10);
                 log::info!("Oriented mesh in {}ms", js_sys::Date::now() - st);
 
                 if let Err(_) = renderer_proxy.send_event(RendererEvent::UploadOField(

@@ -6,7 +6,7 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 use wgpu::util::DeviceExt;
 use winit::{
     dpi::PhysicalSize,
-    event::{Event, WindowEvent},
+    event::{ElementState, Event, MouseButton, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
     platform::web::WindowBuilderExtWebSys,
     window::{Window, WindowBuilder},
@@ -40,6 +40,10 @@ pub struct Renderer {
 
     ofield_buffers: Option<(wgpu::Buffer, wgpu::Buffer)>,
     num_ofield_indices: u32,
+
+    mouse_down: bool,
+    rx: f32,
+    ry: f32,
 }
 
 fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
@@ -61,13 +65,14 @@ fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu:
     depth_texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-fn create_transform(width: u32, height: u32) -> Mat4 {
+fn create_transform(width: u32, height: u32, rx: f32, ry: f32) -> Mat4 {
     Mat4::perspective_rh(
         75f32.to_radians(),
         width as f32 / height as f32,
         0.1,
         1000.0,
     ) * Mat4::look_at_rh(vec3(0.0, 150.0, 0.0), Vec3::ZERO, Vec3::Z)
+        * Mat4::from_euler(glam::EulerRot::XYZ, ry, 0.0, rx)
 }
 
 impl Renderer {
@@ -134,11 +139,11 @@ impl Renderer {
 
         let depth_view = create_depth_texture(&device, width, height);
 
-        let transform = create_transform(width, height);
+        let transform = create_transform(width, height, 0.0, 0.0);
         let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniforms"),
             contents: bytemuck::cast_slice(&transform.to_cols_array()),
-            usage: wgpu::BufferUsages::UNIFORM,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -261,6 +266,10 @@ impl Renderer {
 
             ofield_buffers: None,
             num_ofield_indices: 0,
+
+            mouse_down: false,
+            rx: 0.0,
+            ry: 0.0,
         })
     }
 
@@ -272,25 +281,52 @@ impl Renderer {
         self.event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Wait;
             match event {
-                Event::WindowEvent {
-                    event: WindowEvent::Resized(size),
-                    ..
-                } => {
-                    self.surface_config.width = size.width;
-                    self.surface_config.height = size.height;
-                    self.surface.configure(&self.device, &self.surface_config);
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::Resized(size) => {
+                        self.surface_config.width = size.width;
+                        self.surface_config.height = size.height;
+                        self.surface.configure(&self.device, &self.surface_config);
 
-                    let transform = create_transform(size.width, size.height);
-                    self.queue.write_buffer(
-                        &self.uniforms,
-                        0,
-                        bytemuck::cast_slice(&transform.to_cols_array()),
-                    );
+                        let transform = create_transform(size.width, size.height, self.rx, self.ry);
+                        self.queue.write_buffer(
+                            &self.uniforms,
+                            0,
+                            bytemuck::cast_slice(&transform.to_cols_array()),
+                        );
 
-                    self.depth_view = create_depth_texture(&self.device, size.width, size.height);
+                        self.depth_view =
+                            create_depth_texture(&self.device, size.width, size.height);
 
-                    self.window.request_redraw();
-                }
+                        self.window.request_redraw();
+                    }
+                    WindowEvent::MouseInput {
+                        state,
+                        button: MouseButton::Left,
+                        ..
+                    } => self.mouse_down = state == ElementState::Pressed,
+                    WindowEvent::CursorMoved { position, .. } => {
+                        if self.mouse_down {
+                            self.rx = (position.x / 500.0) as f32;
+                            self.ry = (position.y / 500.0) as f32;
+
+                            let transform = create_transform(
+                                self.surface_config.width,
+                                self.surface_config.height,
+                                self.rx,
+                                self.ry,
+                            );
+                            self.queue.write_buffer(
+                                &self.uniforms,
+                                0,
+                                bytemuck::cast_slice(&transform.to_cols_array()),
+                            );
+
+                            self.window.request_redraw();
+                        }
+                    }
+                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                    _ => (),
+                },
 
                 Event::RedrawRequested(_) => {
                     let frame = self
@@ -352,11 +388,6 @@ impl Renderer {
                     self.queue.submit(Some(encoder.finish()));
                     frame.present();
                 }
-
-                Event::WindowEvent {
-                    event: WindowEvent::CloseRequested,
-                    ..
-                } => *control_flow = ControlFlow::Exit,
 
                 Event::UserEvent(render_event) => match render_event {
                     RendererEvent::UploadMesh(mesh) => {
