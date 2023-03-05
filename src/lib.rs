@@ -90,6 +90,14 @@ pub async fn run(root: web_sys::Element) {
                 st = js_sys::Date::now();
                 let o_field = orientation::hierarchical_smoothing(&hierarchy, 6);
                 log::info!("Oriented mesh in {}ms", js_sys::Date::now() - st);
+
+                if let Err(_) = renderer_proxy.send_event(RendererEvent::UploadOField(
+                    hierarchy[hierarchy.len() - 1].mesh.vertices.clone(),
+                    hierarchy[hierarchy.len() - 1].mesh.normals.clone(),
+                    o_field,
+                )) {
+                    log::warn!("Failed to notify renderer of new mesh!");
+                }
             }
         });
     });

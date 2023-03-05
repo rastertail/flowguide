@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use anyhow::{Context, Result};
 use glam::{vec3, Mat4, Vec3};
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 use wgpu::util::DeviceExt;
 use winit::{
     dpi::PhysicalSize,
@@ -15,6 +16,7 @@ use crate::mesh::InputMesh;
 
 pub enum RendererEvent {
     UploadMesh(InputMesh),
+    UploadOField(Vec<Vec3>, Vec<Vec3>, Vec<Vec3>),
 }
 pub struct Renderer {
     event_loop: EventLoop<RendererEvent>,
@@ -31,9 +33,13 @@ pub struct Renderer {
     bind_group: wgpu::BindGroup,
     depth_view: wgpu::TextureView,
     pipeline: wgpu::RenderPipeline,
+    ofield_pipeline: wgpu::RenderPipeline,
 
     buffers: Option<(wgpu::Buffer, wgpu::Buffer)>,
     num_indices: u32,
+
+    ofield_buffers: Option<(wgpu::Buffer, wgpu::Buffer)>,
+    num_ofield_indices: u32,
 }
 
 fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
@@ -149,6 +155,11 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("preview.wgsl"))),
         });
 
+        let ofield_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("ofield.wgsl"))),
+        });
+
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: None,
             layout: Some(&pipeline_layout),
@@ -192,6 +203,42 @@ impl Renderer {
             multiview: None,
         });
 
+        let ofield_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &ofield_shader,
+                entry_point: "vs_main",
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: 12 as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x3,
+                        offset: 0,
+                        shader_location: 0,
+                    }],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &ofield_shader,
+                entry_point: "fs_main",
+                targets: &[Some(swap_format.into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth16Unorm,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
         Ok(Self {
             event_loop,
             window,
@@ -207,9 +254,13 @@ impl Renderer {
             bind_group,
             depth_view,
             pipeline,
+            ofield_pipeline,
 
             buffers: None,
             num_indices: 0,
+
+            ofield_buffers: None,
+            num_ofield_indices: 0,
         })
     }
 
@@ -288,6 +339,14 @@ impl Renderer {
                             rpass.set_vertex_buffer(0, vertex_buf.slice(..));
                             rpass.draw_indexed(0..self.num_indices as u32, 0, 0..1);
                         }
+
+                        if let Some((vertex_buf, index_buf)) = self.ofield_buffers.as_ref() {
+                            rpass.set_pipeline(&self.ofield_pipeline);
+                            rpass.set_bind_group(0, &self.bind_group, &[]);
+                            rpass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                            rpass.set_vertex_buffer(0, vertex_buf.slice(..));
+                            rpass.draw_indexed(0..self.num_ofield_indices as u32, 0, 0..1);
+                        }
                     }
 
                     self.queue.submit(Some(encoder.finish()));
@@ -330,6 +389,63 @@ impl Renderer {
                                 }),
                         ));
                         self.num_indices = (mesh.tris.len() * 3) as u32;
+
+                        self.window.request_redraw();
+                    }
+
+                    RendererEvent::UploadOField(p, n, o) => {
+                        let mut vertices = Vec::new();
+                        let mut indices = Vec::new();
+
+                        let mut rng = SmallRng::seed_from_u64(0);
+                        for (i, p) in p.iter().enumerate() {
+                            if rng.gen::<f32>() > 0.95 {
+                                let n = n[i];
+                                let o = o[i];
+
+                                let v = n.cross(o);
+
+                                vertices.push((*p + 3.0 * o - 0.1 * v).to_array());
+                                vertices.push((*p - 3.0 * o - 0.1 * v).to_array());
+                                vertices.push((*p + 3.0 * o + 0.1 * v).to_array());
+                                vertices.push((*p - 3.0 * o + 0.1 * v).to_array());
+                                vertices.push((*p + 3.0 * v - 0.1 * o).to_array());
+                                vertices.push((*p - 3.0 * v - 0.1 * o).to_array());
+                                vertices.push((*p + 3.0 * v + 0.1 * o).to_array());
+                                vertices.push((*p - 3.0 * v + 0.1 * o).to_array());
+
+                                let l = vertices.len() as u32;
+                                indices.push(l - 8);
+                                indices.push(l - 7);
+                                indices.push(l - 6);
+                                indices.push(l - 6);
+                                indices.push(l - 5);
+                                indices.push(l - 7);
+                                indices.push(l - 4);
+                                indices.push(l - 3);
+                                indices.push(l - 2);
+                                indices.push(l - 2);
+                                indices.push(l - 1);
+                                indices.push(l - 3);
+                            }
+                        }
+
+                        // Assemble data in a more GPU-friendly manner
+                        self.ofield_buffers = Some((
+                            self.device
+                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("Ofield vertices"),
+                                    contents: bytemuck::cast_slice(vertices.as_slice()),
+                                    usage: wgpu::BufferUsages::VERTEX,
+                                }),
+                            self.device
+                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("Ofield indices"),
+                                    contents: bytemuck::cast_slice(indices.as_slice()),
+                                    usage: wgpu::BufferUsages::INDEX,
+                                }),
+                        ));
+                        self.num_ofield_indices = indices.len() as u32;
 
                         self.window.request_redraw();
                     }
