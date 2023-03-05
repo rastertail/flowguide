@@ -1,19 +1,32 @@
 <!doctype html>
 
 <html>
-  <head>
-    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
-  </head>
 
-  <body>
-    <script type="module">
-      import init from "./dist/flowguide.js";
+<head>
+  <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+</head>
 
-      async function run() {
-        await init();
-      }
+<body>
+  <div id="root">
+    <input type="file" id="mesh">
+    <button id="load_mesh">Load</button>
+    <button id="gen_ofield">Orient</button>
+    <button id="gen_pfield">Position</button>
+    <button id="extract_mesh">Extract</button>
+    <br>
+    <canvas id="preview"></canvas>
+  </div>
 
-      run();
-    </script>
-  </body>
+  <script type="module">
+    import init, { run } from "./dist/flowguide.js";
+
+    async function main() {
+      await init();
+      await run(document.getElementById("root"));
+    }
+
+    main();
+  </script>
+</body>
+
 </html>

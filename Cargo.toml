@@ -8,9 +8,37 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasm-bindgen = "0.2.63"
-console_error_panic_hook = { version = "0.1.6" }
-wee_alloc = { version = "0.4.5" }
+anyhow = "1"
+bytemuck = "1"
+byteorder = "1"
+console_error_panic_hook = "0.1"
+console_log = "0.2"
+futures = "0.3"
+glam = "0.23"
+js-sys = "0.3"
+log = "0.4"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+wee_alloc = "0.4" 
+winit = "0.28"
+
+[dependencies.wgpu]
+version = "0.15"
+features = [ "webgl" ]
+
+[dependencies.web-sys]
+version = "0.3.4"
+features = [
+  "Element",
+  "File",
+  "FileList",
+  "HtmlButtonElement",
+  "HtmlCanvasElement",
+  "HtmlCollection",
+  "HtmlInputElement",
+  "ReadableStream",
+  "ReadableStreamDefaultReader",
+]
 
 [profile.release]
 opt-level = "s"
