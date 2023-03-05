@@ -2,19 +2,19 @@ use std::panic;
 
 use wasm_bindgen::prelude::*;
 
+mod hierarchy;
 mod mesh;
+mod orientation;
 mod ply;
 mod renderer;
 mod stream;
 
 use crate::{
+    mesh::ProcessMesh,
     ply::load_ply,
     renderer::{Renderer, RendererEvent},
     stream::AsyncStreamReader,
 };
-
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
 pub async fn run(root: web_sys::Element) {
@@ -65,16 +65,31 @@ pub async fn run(root: web_sys::Element) {
                     }
                 });
 
+                let mut st = js_sys::Date::now();
                 let model = load_ply(&mut reader).await.unwrap();
                 log::info!(
-                    "Read {} vertices, {} tris",
+                    "Read {} vertices, {} tris in {}ms",
                     model.vertices.len(),
-                    model.tris.len()
+                    model.tris.len(),
+                    js_sys::Date::now() - st,
                 );
 
-                if let Err(_) = renderer_proxy.send_event(RendererEvent::UploadMesh(model)) {
+                if let Err(_) = renderer_proxy.send_event(RendererEvent::UploadMesh(model.clone()))
+                {
                     log::warn!("Failed to notify renderer of new mesh!");
                 }
+
+                st = js_sys::Date::now();
+                let processed = ProcessMesh::from(model);
+                log::info!("Processed mesh in {}ms", js_sys::Date::now() - st);
+
+                st = js_sys::Date::now();
+                let hierarchy = hierarchy::build(processed);
+                log::info!("Built hierarchy in {}ms", js_sys::Date::now() - st);
+
+                st = js_sys::Date::now();
+                let o_field = orientation::hierarchical_smoothing(&hierarchy, 6);
+                log::info!("Oriented mesh in {}ms", js_sys::Date::now() - st);
             }
         });
     });
