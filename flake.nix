@@ -15,6 +15,7 @@
         pkgs = import nixpkgs { inherit system overlays; };
         rust = pkgs.rust-bin.stable.latest.default.override {
           targets = [ "wasm32-unknown-unknown" ];
+          extensions = [ "rust-src" "rust-analyzer" ];
         };
       in {
         devShells.default = pkgs.mkShell {
