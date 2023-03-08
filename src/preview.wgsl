@@ -1,3 +1,8 @@
+struct Uniforms {
+    view_transform: mat4x4<f32>,
+    model_transform: mat4x4<f32>,
+}
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) world_pos: vec3<f32>,
@@ -6,7 +11,7 @@ struct VertexOutput {
 
 @group(0)
 @binding(0)
-var<uniform> transform: mat4x4<f32>;
+var<uniform> uniforms: Uniforms;
 
 @vertex
 fn vs_main(
@@ -14,9 +19,9 @@ fn vs_main(
     @location(1) normal: vec3<f32>,
 ) -> VertexOutput {
     var result: VertexOutput;
-    result.position = transform * vec4<f32>(position, 1.0);
+    result.position = uniforms.view_transform * uniforms.model_transform * vec4<f32>(position, 1.0);
     result.world_pos = position;
-    result.normal = normal;
+    result.normal = (uniforms.model_transform * vec4<f32>(normal, 0.0)).xyz;
 
     return result;
 }

@@ -95,14 +95,17 @@ fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu:
     depth_texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-fn create_transform(width: u32, height: u32, rx: f32, ry: f32) -> Mat4 {
+fn create_view_transform(width: u32, height: u32) -> Mat4 {
     Mat4::perspective_rh(
         75f32.to_radians(),
         width as f32 / height as f32,
         0.1,
         1000.0,
     ) * Mat4::look_at_rh(vec3(0.0, 150.0, 0.0), Vec3::ZERO, Vec3::Z)
-        * Mat4::from_euler(glam::EulerRot::XYZ, ry, 0.0, rx)
+}
+
+fn create_model_transform(rx: f32, ry: f32) -> Mat4 {
+    Mat4::from_euler(glam::EulerRot::XYZ, ry, 0.0, rx)
 }
 
 #[wasm_bindgen]
@@ -156,7 +159,7 @@ impl Renderer {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(64),
+                    min_binding_size: wgpu::BufferSize::new(128),
                 },
                 count: None,
             }],
@@ -169,10 +172,14 @@ impl Renderer {
 
         let depth_view = create_depth_texture(&device, surface_config.width, surface_config.height);
 
-        let transform = create_transform(surface_config.width, surface_config.height, 0.0, 0.0);
+        let view_transform = create_view_transform(surface_config.width, surface_config.height);
+        let model_transform = create_model_transform(0.0, 0.0);
         let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniforms"),
-            contents: bytemuck::cast_slice(&transform.to_cols_array()),
+            contents: bytemuck::cast_slice(&[
+                view_transform.to_cols_array(),
+                model_transform.to_cols_array(),
+            ]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -610,16 +617,16 @@ impl Renderer {
         self.rx += dx / 200.0;
         self.ry -= dy / 200.0;
 
-        let transform = create_transform(
-            self.surface_config.width,
-            self.surface_config.height,
-            self.rx,
-            self.ry,
-        );
+        let view_transform =
+            create_view_transform(self.surface_config.width, self.surface_config.height);
+        let model_transform = create_model_transform(self.rx, self.ry);
         self.queue.write_buffer(
             &self.uniforms,
             0,
-            bytemuck::cast_slice(&transform.to_cols_array()),
+            bytemuck::cast_slice(&[
+                view_transform.to_cols_array(),
+                model_transform.to_cols_array(),
+            ]),
         );
     }
 }
