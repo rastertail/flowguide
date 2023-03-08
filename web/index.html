@@ -11,18 +11,38 @@
     <input type="file" id="mesh">
     <button id="load_mesh">Load</button>
     <br>
-    <canvas id="preview"></canvas>
+    <canvas id="preview" data-raw-handle="1"></canvas>
   </div>
 
   <script type="module">
-    import init, { run } from "./dist/flowguide.js";
+    import init, { InputMesh, Renderer } from "./dist/flowguide.js";
+    await init();
 
-    async function main() {
-      await init();
-      await run(document.getElementById("root"));
-    }
+    const canvas = document.getElementById("preview");
+    canvas.width = 1600;
+    canvas.height = 900;
 
-    main();
+    let input_mesh;
+    const filepicker = document.getElementById("mesh");
+
+    const renderer = await new Renderer(canvas);
+
+    document.getElementById("load_mesh").addEventListener("click", async () => {
+      if (filepicker.files[0] != undefined) {
+        input_mesh = await new InputMesh(filepicker.files[0]);
+        renderer.update_mesh(input_mesh);
+        requestAnimationFrame(() => renderer.draw());
+      }
+    });
+
+    canvas.addEventListener("mousemove", (ev) => {
+      if (ev.buttons & 1) {
+        renderer.orbit_camera(ev.movementX, ev.movementY);
+        requestAnimationFrame(() => renderer.draw());
+      }
+    });
+
+    requestAnimationFrame(() => renderer.draw());
   </script>
 </body>
 

@@ -17,10 +17,9 @@ futures = "0.3"
 glam = "0.23"
 js-sys = "0.3"
 log = "0.4"
-ordered-float = "3"
+raw-window-handle = "0.5"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-winit = "0.28"
 
 [dependencies.rand]
 version = "0.8"
@@ -34,13 +33,11 @@ features = [ "webgl" ]
 [dependencies.web-sys]
 version = "0.3.4"
 features = [
+  "DomStringMap",
   "Element",
   "File",
-  "FileList",
-  "HtmlButtonElement",
+  "HtmlElement",
   "HtmlCanvasElement",
-  "HtmlCollection",
-  "HtmlInputElement",
   "ReadableStream",
   "ReadableStreamDefaultReader",
 ]

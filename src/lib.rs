@@ -9,13 +9,7 @@ mod ply;
 mod renderer;
 mod stream;
 
-use crate::{
-    mesh::ProcessMesh,
-    ply::load_ply,
-    renderer::{Renderer, RendererEvent},
-    stream::AsyncStreamReader,
-};
-
+/*
 #[wasm_bindgen]
 pub async fn run(root: web_sys::Element) {
     log::info!("Initializing flowguide...");
@@ -105,6 +99,7 @@ pub async fn run(root: web_sys::Element) {
 
     renderer.run();
 }
+*/
 
 #[wasm_bindgen(start)]
 pub fn main() {

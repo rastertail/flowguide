@@ -1,5 +1,4 @@
 use glam::{vec3, Vec3};
-use ordered_float::OrderedFloat;
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 
 use crate::{hierarchy::HierarchyLevel, mesh::ProcessMesh};
@@ -20,7 +19,7 @@ fn extrinsic_compat(o0: Vec3, n0: Vec3, o1: Vec3, n1: Vec3) -> (Vec3, Vec3) {
     ];
 
     a.into_iter()
-        .max_by_key(|(a, b)| OrderedFloat(a.dot(*b)))
+        .max_by(|(a, b), (c, d)| a.dot(*b).partial_cmp(&c.dot(*d)).unwrap())
         .unwrap()
 }
 

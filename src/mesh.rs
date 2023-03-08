@@ -1,10 +1,34 @@
+use futures::FutureExt;
 use glam::Vec3;
+use wasm_bindgen::prelude::*;
+
+use crate::{ply::load_ply, stream::AsyncStreamReader};
 
 #[derive(Clone, Default)]
+#[wasm_bindgen]
 pub struct InputMesh {
-    pub vertices: Vec<Vec3>,
-    pub normals: Vec<Vec3>,
-    pub tris: Vec<[usize; 3]>,
+    pub(crate) vertices: Vec<Vec3>,
+    pub(crate) normals: Vec<Vec3>,
+    pub(crate) tris: Vec<[usize; 3]>,
+}
+
+#[wasm_bindgen]
+impl InputMesh {
+    #[wasm_bindgen(constructor)]
+    pub async fn new(file: &web_sys::File) -> Result<InputMesh, JsValue> {
+        let js_reader = web_sys::ReadableStreamDefaultReader::new(&file.stream())
+            .expect("Could not open file reader");
+        let mut reader = AsyncStreamReader::new(move || {
+            wasm_bindgen_futures::JsFuture::from(js_reader.read()).map(|r| {
+                r.ok()
+                    .and_then(|v| js_sys::Reflect::get(&v, &"value".into()).ok())
+                    .and_then(|v| v.dyn_into::<js_sys::Uint8Array>().ok())
+                    .map(|a| a.to_vec())
+            })
+        });
+
+        Ok(load_ply(&mut reader).await.map_err(|e| format!("{}", e))?)
+    }
 }
 
 pub struct ProcessMesh {

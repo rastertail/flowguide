@@ -3,25 +3,55 @@ use std::borrow::Cow;
 use anyhow::{Context, Result};
 use glam::{vec3, Mat4, Vec3};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
-use wgpu::util::DeviceExt;
-use winit::{
-    dpi::PhysicalSize,
-    event::{ElementState, Event, MouseButton, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
-    platform::web::WindowBuilderExtWebSys,
-    window::{Window, WindowBuilder},
+use raw_window_handle::{
+    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle, WebDisplayHandle,
+    WebWindowHandle,
 };
+use wasm_bindgen::prelude::*;
+use wgpu::util::DeviceExt;
 
 use crate::mesh::InputMesh;
 
-pub enum RendererEvent {
-    UploadMesh(InputMesh),
-    UploadOField(Vec<Vec3>, Vec<Vec3>, Vec<Vec3>),
+struct CanvasWindow {
+    window_handle: RawWindowHandle,
+    display_handle: RawDisplayHandle,
 }
-pub struct Renderer {
-    event_loop: EventLoop<RendererEvent>,
-    window: Window,
 
+impl CanvasWindow {
+    fn new(canvas: &web_sys::HtmlCanvasElement) -> Self {
+        let mut web_window = WebWindowHandle::empty();
+        web_window.id = canvas
+            .dataset()
+            .get("rawHandle")
+            .expect("Canvas element missing data-raw-handle")
+            .parse()
+            .expect("data-raw-handle not an integer");
+        let window_handle = RawWindowHandle::Web(web_window);
+
+        let web_display = WebDisplayHandle::empty();
+        let display_handle = RawDisplayHandle::Web(web_display);
+
+        Self {
+            window_handle,
+            display_handle,
+        }
+    }
+}
+
+unsafe impl HasRawWindowHandle for CanvasWindow {
+    fn raw_window_handle(&self) -> RawWindowHandle {
+        self.window_handle
+    }
+}
+
+unsafe impl HasRawDisplayHandle for CanvasWindow {
+    fn raw_display_handle(&self) -> RawDisplayHandle {
+        self.display_handle
+    }
+}
+
+#[wasm_bindgen]
+pub struct Renderer {
     instance: wgpu::Instance,
     surface: wgpu::Surface,
     adapter: wgpu::Adapter,
@@ -75,22 +105,22 @@ fn create_transform(width: u32, height: u32, rx: f32, ry: f32) -> Mat4 {
         * Mat4::from_euler(glam::EulerRot::XYZ, ry, 0.0, rx)
 }
 
+#[wasm_bindgen]
 impl Renderer {
-    pub async fn new(canvas: web_sys::HtmlCanvasElement) -> Result<Renderer> {
-        let event_loop = EventLoopBuilder::with_user_event().build();
-        let window = WindowBuilder::new()
-            .with_canvas(Some(canvas))
-            .build(&event_loop)?;
+    #[wasm_bindgen(constructor)]
+    pub async fn new(canvas: &web_sys::HtmlCanvasElement) -> Renderer {
+        let window = CanvasWindow::new(canvas);
 
         let instance = wgpu::Instance::default();
-        let surface = unsafe { instance.create_surface(&window) }?;
+        let surface = unsafe { instance.create_surface(&window) }
+            .expect("Failed to create WebGPU surface from canvas");
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 compatible_surface: Some(&surface),
                 ..Default::default()
             })
             .await
-            .context("No WebGPU adapter available")?;
+            .expect("No WebGPU adapter available");
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -101,16 +131,16 @@ impl Renderer {
                 },
                 None,
             )
-            .await?;
+            .await
+            .expect("No suitable WebGPU device found!");
 
         let swap_caps = surface.get_capabilities(&adapter);
         let swap_format = swap_caps.formats[0];
-        let PhysicalSize { width, height } = window.inner_size();
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swap_format,
-            width,
-            height,
+            width: canvas.width(),
+            height: canvas.height(),
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: swap_caps.alpha_modes[0],
             view_formats: vec![],
@@ -137,9 +167,9 @@ impl Renderer {
             push_constant_ranges: &[],
         });
 
-        let depth_view = create_depth_texture(&device, width, height);
+        let depth_view = create_depth_texture(&device, surface_config.width, surface_config.height);
 
-        let transform = create_transform(width, height, 0.0, 0.0);
+        let transform = create_transform(surface_config.width, surface_config.height, 0.0, 0.0);
         let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniforms"),
             contents: bytemuck::cast_slice(&transform.to_cols_array()),
@@ -244,10 +274,7 @@ impl Renderer {
             multiview: None,
         });
 
-        Ok(Self {
-            event_loop,
-            window,
-
+        Self {
             instance,
             surface,
             adapter,
@@ -270,13 +297,10 @@ impl Renderer {
             mouse_down: false,
             rx: 0.0,
             ry: 0.0,
-        })
+        }
     }
 
-    pub fn proxy(&self) -> EventLoopProxy<RendererEvent> {
-        self.event_loop.create_proxy()
-    }
-
+    /*
     pub fn run(mut self) -> ! {
         self.event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Wait;
@@ -485,5 +509,117 @@ impl Renderer {
                 _ => {}
             }
         });
+    }
+    */
+
+    #[wasm_bindgen]
+    pub fn draw(&self) {
+        let frame = self
+            .surface
+            .get_current_texture()
+            .expect("Failed to acquire next swap chain texture");
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.1,
+                            g: 0.1,
+                            b: 0.1,
+                            a: 1.0,
+                        }),
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: false,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
+
+            if let Some((vertex_buf, index_buf)) = self.buffers.as_ref() {
+                rpass.set_pipeline(&self.pipeline);
+                rpass.set_bind_group(0, &self.bind_group, &[]);
+                rpass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                rpass.set_vertex_buffer(0, vertex_buf.slice(..));
+                rpass.draw_indexed(0..self.num_indices as u32, 0, 0..1);
+            }
+
+            if let Some((vertex_buf, index_buf)) = self.ofield_buffers.as_ref() {
+                rpass.set_pipeline(&self.ofield_pipeline);
+                rpass.set_bind_group(0, &self.bind_group, &[]);
+                rpass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                rpass.set_vertex_buffer(0, vertex_buf.slice(..));
+                rpass.draw_indexed(0..self.num_ofield_indices as u32, 0, 0..1);
+            }
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+        frame.present();
+    }
+
+    #[wasm_bindgen]
+    pub fn update_mesh(&mut self, mesh: &InputMesh) {
+        // Assemble data in a more GPU-friendly manner
+        assert!(mesh.vertices.len() - 1 <= u32::MAX as usize);
+        let verts = mesh
+            .vertices
+            .iter()
+            .zip(&mesh.normals)
+            .map(|(v, n)| [v.to_array(), n.to_array()])
+            .collect::<Vec<_>>();
+        let indices = mesh
+            .tris
+            .iter()
+            .map(|[a, b, c]| [*a as u32, *b as u32, *c as u32]) // necessary?
+            .collect::<Vec<_>>();
+
+        self.buffers = Some((
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Mesh vertices"),
+                    contents: bytemuck::cast_slice(verts.as_slice()),
+                    usage: wgpu::BufferUsages::VERTEX,
+                }),
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Mesh indices"),
+                    contents: bytemuck::cast_slice(indices.as_slice()),
+                    usage: wgpu::BufferUsages::INDEX,
+                }),
+        ));
+        self.num_indices = (mesh.tris.len() * 3) as u32;
+    }
+
+    #[wasm_bindgen]
+    pub fn orbit_camera(&mut self, dx: f32, dy: f32) {
+        self.rx += dx / 200.0;
+        self.ry -= dy / 200.0;
+
+        let transform = create_transform(
+            self.surface_config.width,
+            self.surface_config.height,
+            self.rx,
+            self.ry,
+        );
+        self.queue.write_buffer(
+            &self.uniforms,
+            0,
+            bytemuck::cast_slice(&transform.to_cols_array()),
+        );
     }
 }
